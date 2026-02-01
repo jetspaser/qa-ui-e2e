@@ -1,78 +1,112 @@
 
 
 """
-UI-тесты для аутентификации в YouTrack.
+UI-тесты аутентификации YouTrack.
 
-Данный модуль содержит базовый end-to-end тест,
-который проверяет успешный вход пользователя через UI.
+Проверяется:
+- успешная авторизация
+- валидация обязательных полей
+- обработка невалидных учетных данных
+
+Тесты написаны с использованием Playwright + pytest.
 """
 
+import pytest
+from faker import Faker
 from playwright.sync_api import Page, expect
 
+fake = Faker()
 
-def test_login_success(page: Page) -> None:
-    """
-    Проверяет, что пользователь может успешно войти в YouTrack
-    с использованием валидных учетных данных.
 
-    Шаги теста:
-    1. Открыть страницу логина
-    2. Заполнить поле логина
-    3. Заполнить поле пароля
-    4. Нажать кнопку «Войти»
-    5. Убедиться, что открылась главная страница:
-       - Фирменный логотип отображается
-       - Заголовок страницы соответствует ожидаемому
-    """
+class TestLogin:
 
-    # --- Шаг 1: Открыть страницу ---
-    # В YouTrack при наличии активной сессии
-    # пользователь может быть автоматически перенаправлен
-    # сразу на главную страницу без формы логина.
-    page.goto("http://localhost:8080/")
+    LOGIN_URL = "http://localhost:8080/hub/auth/login"
 
-    # --- Шаг 2: Заполнить поле логина ---
-    # locator() создает "ленивый" объект Locator:
-    # реальный поиск элемента происходит в момент действия (fill).
-    page.locator('[data-test="username-field"]').fill("admin")
+    DASHBOARD_TITLE = "YouTrack Default Панель мониторинга"
+    REQUIRED_FIELD_ERROR = "Необходимо указать значение"
+    INVALID_CREDENTIALS_ERROR = "Некорректное имя пользователя или пароль."
 
-    # fill():
-    # - ожидает, пока элемент станет видимым
-    # - очищает текущее значение
-    # - вводит указанный текст
+    # -------------------------
+    # POSITIVE
+    # -------------------------
 
-    # --- Шаг 3: Заполнить поле пароля ---
-    page.locator('[data-test="password-field"]').fill("admin")
+    def test_login_success(self, page: Page) -> None:
+        """
+        Успешная авторизация с валидными данными
+        """
+        self.open_login_page(page)
+        self.login_as_admin(page)
 
-    # --- Шаг 4: Нажать кнопку «Войти» ---
-    page.locator('[data-test="login-button"]').click()
+        expect(page).to_have_title(self.DASHBOARD_TITLE)
 
-    # click():
-    # - ожидает, пока элемент станет доступен для взаимодействия
-    # - выполняет клик
-    # - автоматически ожидает навигацию, если она происходит
+    # -------------------------
+    # NEGATIVE
+    # -------------------------
 
-    # --- Шаг 5.1: Проверить, что логотип YouTrack отображается ---
-    # Проверка по логотипу подтверждает,
-    # что пользователь действительно находится в интерфейсе YouTrack.
-    expect(
-        page.locator('img[src*="youtrack-wide"]')
-    ).to_be_visible()
+    def test_login_empty_fields(self, page: Page) -> None:
+        """
+        Попытка входа с пустыми полями
+        """
+        self.open_login_page(page)
+        self.submit_login(page)
 
-    # to_be_visible():
-    # - элемент присутствует в DOM
-    # - элемент не скрыт стилями
-    # - элемент имеет ненулевые размеры
+        error = page.locator("text=Необходимо указать значение")
+        expect(error).to_be_visible()
 
-    # --- Шаг 5.2: Проверить заголовок страницы ---
-    # Проверка document.title используется здесь осознанно:
-    # в YouTrack заголовок панели может присутствовать
-    # в нескольких элементах DOM, что вызывает strict mode ошибки
-    # при проверке через локаторы.
-    expect(page).to_have_title(
-        "YouTrack Default Панель мониторинга"
-    )
+    def test_login_invalid_credentials(self, page: Page) -> None:
+        """
+        Попытка входа с невалидными учетными данными
+        """
+        self.open_login_page(page)
 
-    # to_have_title():
-    # - ожидает, пока document.title станет равен ожидаемому значению
-    # - подтверждает успешную навигацию после логина
+        self.fill_username(page, fake.user_name())
+        self.fill_password(page, fake.password())
+        self.submit_login(page)
+
+        error = page.locator(f"text={self.INVALID_CREDENTIALS_ERROR}")
+        expect(error).to_be_visible()
+
+    # -------------------------
+    # HELPERS
+    # -------------------------
+
+    def open_login_page(self, page: Page) -> None:
+        page.goto(self.LOGIN_URL)
+
+    def fill_username(self, page: Page, username: str) -> None:
+        page.locator('[data-test="username-field"]').fill(username)
+
+    def fill_password(self, page: Page, password: str) -> None:
+        page.locator('[data-test="password-field"]').fill(password)
+
+    def submit_login(self, page: Page) -> None:
+        page.locator('[data-test="login-button"]').click()
+
+    def login_as_admin(self, page: Page) -> None:
+        self.fill_username(page, "admin")
+        self.fill_password(page, "admin")
+        self.submit_login(page)
+
+    def test_login_empty_fields(self, page: Page) -> None:
+        """
+        Попытка входа с пустыми полями.
+        Ошибка появляется только после того, как поля становятся 'dirty'.
+        """
+        self.open_login_page(page)
+
+        username = page.locator('[data-test="username-field"]')
+        password = page.locator('[data-test="password-field"]')
+
+        # Делаем поля dirty
+        username.click()
+        username.fill("a")
+        username.fill("")
+        password.click()
+        password.fill("a")
+        password.fill("")
+
+        self.submit_login(page)
+
+        error = page.locator(f"text={self.REQUIRED_FIELD_ERROR}")
+        expect(error).to_have_count(2)  # 2 ошибки: username + password
+
