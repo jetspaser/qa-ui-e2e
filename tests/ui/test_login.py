@@ -11,19 +11,17 @@ UI-тесты аутентификации YouTrack.
 Тесты написаны с использованием Playwright + pytest.
 """
 
-import pytest
-from faker import Faker
 from playwright.sync_api import Page, expect
 
-fake = Faker()
+from pages.login_page import LoginPage
 
 
 class TestLogin:
-
-    LOGIN_URL = "http://localhost:8080/hub/auth/login"
+    """
+    Набор UI-тестов для страницы логина YouTrack.
+    """
 
     DASHBOARD_TITLE = "YouTrack Default Панель мониторинга"
-    REQUIRED_FIELD_ERROR = "Необходимо указать значение"
     INVALID_CREDENTIALS_ERROR = "Некорректное имя пользователя или пароль."
 
     # -------------------------
@@ -32,10 +30,12 @@ class TestLogin:
 
     def test_login_success(self, page: Page) -> None:
         """
-        Успешная авторизация с валидными данными
+        Успешная авторизация с валидными учетными данными.
         """
-        self.open_login_page(page)
-        self.login_as_admin(page)
+        login_page = LoginPage(page)
+
+        login_page.open()
+        login_page.login(username="admin", password="admin")
 
         expect(page).to_have_title(self.DASHBOARD_TITLE)
 
@@ -45,68 +45,28 @@ class TestLogin:
 
     def test_login_empty_fields(self, page: Page) -> None:
         """
-        Попытка входа с пустыми полями
-        """
-        self.open_login_page(page)
-        self.submit_login(page)
+        Попытка входа с пустыми полями.
 
-        error = page.locator("text=Необходимо указать значение")
-        expect(error).to_be_visible()
+        Ошибка обязательного поля отображается
+        только после того, как поля становятся 'dirty'.
+        """
+        login_page = LoginPage(page)
+
+        login_page.open()
+        login_page.make_fields_dirty()
+        login_page.submit()
+
+        assert login_page.required_field_errors_count() == 2
 
     def test_login_invalid_credentials(self, page: Page) -> None:
         """
-        Попытка входа с невалидными учетными данными
+        Попытка входа с невалидными учетными данными.
         """
-        self.open_login_page(page)
+        login_page = LoginPage(page)
 
-        self.fill_username(page, fake.user_name())
-        self.fill_password(page, fake.password())
-        self.submit_login(page)
+        login_page.open()
+        login_page.login(username="invalid_user", password="invalid_password")
 
-        error = page.locator(f"text={self.INVALID_CREDENTIALS_ERROR}")
-        expect(error).to_be_visible()
-
-    # -------------------------
-    # HELPERS
-    # -------------------------
-
-    def open_login_page(self, page: Page) -> None:
-        page.goto(self.LOGIN_URL)
-
-    def fill_username(self, page: Page, username: str) -> None:
-        page.locator('[data-test="username-field"]').fill(username)
-
-    def fill_password(self, page: Page, password: str) -> None:
-        page.locator('[data-test="password-field"]').fill(password)
-
-    def submit_login(self, page: Page) -> None:
-        page.locator('[data-test="login-button"]').click()
-
-    def login_as_admin(self, page: Page) -> None:
-        self.fill_username(page, "admin")
-        self.fill_password(page, "admin")
-        self.submit_login(page)
-
-    def test_login_empty_fields(self, page: Page) -> None:
-        """
-        Попытка входа с пустыми полями.
-        Ошибка появляется только после того, как поля становятся 'dirty'.
-        """
-        self.open_login_page(page)
-
-        username = page.locator('[data-test="username-field"]')
-        password = page.locator('[data-test="password-field"]')
-
-        # Делаем поля dirty
-        username.click()
-        username.fill("a")
-        username.fill("")
-        password.click()
-        password.fill("a")
-        password.fill("")
-
-        self.submit_login(page)
-
-        error = page.locator(f"text={self.REQUIRED_FIELD_ERROR}")
-        expect(error).to_have_count(2)  # 2 ошибки: username + password
-
+        assert login_page.is_invalid_credentials_error_visible(
+            self.INVALID_CREDENTIALS_ERROR
+        )
